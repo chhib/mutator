@@ -2,7 +2,8 @@
 
 Clojure follows clj-mutate's symbol rules. Go follows mutate4go, including
 one-way `*` to `/`. Java follows mutate4java. TypeScript, Rust, and Python
-use the same decisions as Java, spelled in that language. TypeScript also
+use the same decisions as Java, spelled in that language. dbt SQL sites come
+from dbtsql and never touch Jinja. TypeScript also
 mutates `??` to `||` and `?.` to `.` (removed on a call or index). JavaScript
 files use the TypeScript rules.
 """
@@ -354,9 +355,20 @@ def _visit(node, data: bytes, language: str, found: list[RawSite]) -> None:
         stack.extend(reversed(current.children))
 
 
+def _sql_sites(source: str) -> list[RawSite]:
+    from dbtsql.sites import discover
+
+    return [
+        RawSite(site.line, site.start, site.end, site.original, site.mutant, site.category)
+        for site in discover(source)
+    ]
+
+
 def discover_raw(source: str, language: str, path: str) -> list[RawSite]:
     """Mutation sites in source order. Offsets are UTF-8 byte offsets."""
 
+    if language == "sql":
+        return _sql_sites(source)
     crapper = ensure_crapper()
     data = source.encode("utf-8")
     grammar = _grammar(language, path)

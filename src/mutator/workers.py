@@ -4,12 +4,17 @@ Each worker is a directory under target/mutation-workers. Project files are
 linked in. The file under test is a private copy, so workers can mutate it at
 the same time without touching the original tree. The overlay is removed when
 the file's mutants finish.
+
+dbt Fusion resolves a linked dbt_project.yml to the original project and does
+not walk linked directories, so a dbt project is copied into each worker
+instead. Only its dbt_packages stay linked.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -267,16 +272,45 @@ def _overlay(worker: Path, root: Path, relative: str, original: bytes) -> None:
     destination.write_bytes(original)
 
 
+def _dbt_project(root: Path, relative: str) -> Path | None:
+    if not relative.endswith(".sql"):
+        return None
+    from dbtsql.project import project_dir
+
+    found = project_dir(root / relative)
+    if found is None or _inside(root, found) is None:
+        return None
+    return found.resolve()
+
+
+def _copy_dbt_project(worker: Path, root: Path, project: Path) -> None:
+    destination = worker / project.relative_to(root.resolve())
+    shutil.copytree(
+        project,
+        destination,
+        symlinks=True,
+        ignore=shutil.ignore_patterns(*SKIP_LINK, "logs", "dbt_packages"),
+        dirs_exist_ok=True,
+    )
+    (destination / "logs").mkdir(exist_ok=True)
+    packages = project / "dbt_packages"
+    if packages.is_dir():
+        symlink(destination / "dbt_packages", packages)
+
+
 def create_workers(
     base: Path, root: Path, relative: str, original: bytes, count: int
 ) -> list[Path]:
     created = []
     first = relative.split("/", 1)[0]
     importers = importers_of(root, relative)
+    project = _dbt_project(root, relative)
     for index in range(count):
         worker = base / f"worker-{index}"
         worker.mkdir(parents=True, exist_ok=True)
         _copy_configs(worker, root, relative)
+        if project is not None:
+            _copy_dbt_project(worker, root, project)
         _link_children(worker, root, {first})
         _overlay(worker, root, relative, original)
         for importer in importers:

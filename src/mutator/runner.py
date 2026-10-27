@@ -222,6 +222,15 @@ def _python_plan(root: Path, source: Path) -> tuple[Command, Path]:
     return _python_command(directory), directory
 
 
+def _sql_plan(root: Path, source: Path) -> tuple[Command, Path]:
+    """The model's own dbt unit tests, or all of them for a macro."""
+
+    from dbtsql.project import project_dir, selector, test_command
+
+    directory = project_dir(source) or root
+    return test_command(directory, selector(source, directory)), directory
+
+
 _PLANS = {
     "clojure": _clojure_plan,
     "java": _java_plan,
@@ -229,6 +238,7 @@ _PLANS = {
     "typescript": _typescript_plan,
     "rust": _rust_plan,
     "python": _python_plan,
+    "sql": _sql_plan,
 }
 
 
